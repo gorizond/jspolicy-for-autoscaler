@@ -8,7 +8,18 @@ spec:
   apiGroups: ["cluster.x-k8s.io"]
   javascript: |
     const nameCl = request.object.metadata.name
-    const vers = "9.28.0"
+    const vers = "9.29.3"
+    const result = create({
+      kind: "Secret",
+      apiVersion: "v1",
+      metadata: {
+        "name": nameCl + "-autoscaler",
+        "namespace": "fleet-default"
+      },
+      data: {
+        "config.yaml": btoa('url: ' + env('RANCHER_URL') + '\ntoken: ' + env('RANCHER_AUTH') + '\nclusterName: ' + nameCl +'\nclusterNamespace: fleet-default')
+      }
+    });
     fetchSync("https://" + env('RANCHER_URL') + "/v1/catalog.cattle.io.clusterrepos/autoscaler?action=upgrade", {
       headers: {
         "accept": "application/json",
@@ -30,13 +41,12 @@ spec:
                         "autoDiscovery":{
                             "clusterName":nameCl
                         },
-                        "cloudProvider":"clusterapi",
+                        "cloudProvider":"rancher",
                         "extraArgs":{
                             "balance-similar-node-groups":true,
-                            "clusterapi-cloud-config-authoritative":true,
                             "cordon-node-before-terminating":true,
                             "daemonset-eviction-for-empty-nodes":true,
-                            "kubeconfig":"/etc/kubeconfig/value",
+                            "cloud-config":"/etc/rancher/config.yaml",
                             "namespace":"kube-system",
                             "node-group-auto-discovery":"clusterapi:clusterName=" + nameCl,
                             "skip-nodes-with-local-storage":false,
@@ -44,8 +54,8 @@ spec:
                         },
                         "extraVolumeSecrets":{
                             "kubeconfig":{
-                              "mountPath":"/etc/kubeconfig",
-                              "name":nameCl + "-kubeconfig"
+                              "mountPath":"/etc/rancher",
+                              "name":nameCl + "-autoscaler"
                             }
                         }
                       },

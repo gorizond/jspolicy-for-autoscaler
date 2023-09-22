@@ -17,3 +17,7 @@ spec:
       body: JSON.stringify({}),
       method: "POST"
     })
+    const Secret = get("Secret", "v1", "fleet-default/" + cl + "-autoscaler");
+    if (Secret) {
+      const result = remove(Secret);
+    }
