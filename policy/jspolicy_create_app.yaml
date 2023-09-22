@@ -17,7 +17,7 @@ spec:
         "namespace": "fleet-default"
       },
       data: {
-        "config.yaml": btoa('url: ' + env('RANCHER_URL') + '\ntoken: ' + env('RANCHER_AUTH') + '\nclusterName: ' + nameCl +'\nclusterNamespace: fleet-default')
+        "config.yaml": btoa('url: https://' + env('RANCHER_URL') + '\ntoken: ' + env('RANCHER_AUTH') + '\nclusterName: ' + nameCl +'\nclusterNamespace: fleet-default')
       }
     });
     fetchSync("https://" + env('RANCHER_URL') + "/v1/catalog.cattle.io.clusterrepos/autoscaler?action=upgrade", {
