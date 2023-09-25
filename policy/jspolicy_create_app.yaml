@@ -47,15 +47,19 @@ spec:
                             "cordon-node-before-terminating":true,
                             "daemonset-eviction-for-empty-nodes":true,
                             "cloud-config":"/etc/rancher/config.yaml",
+                            "kubeconfig":"/etc/kubeconfig/value",
                             "namespace":"kube-system",
-                            "node-group-auto-discovery":"clusterapi:clusterName=" + nameCl,
                             "skip-nodes-with-local-storage":false,
                             "skip-nodes-with-system-pods":false
                         },
                         "extraVolumeSecrets":{
-                            "kubeconfig":{
+                            "rancher":{
                               "mountPath":"/etc/rancher",
                               "name":nameCl + "-autoscaler"
+                            },
+                            "kubeconfig":{
+                              "mountPath":"/etc/kubeconfig",
+                              "name":nameCl + "-kubeconfig"
                             }
                         }
                       },
