@@ -67,7 +67,7 @@ spec:
                   }
                 ],
                 "noHooks":false,
-                "timeout":"600s",
+                "timeout":"1200s",
                 "wait":true,
                 "namespace":"fleet-default",
                 "projectId":"",
