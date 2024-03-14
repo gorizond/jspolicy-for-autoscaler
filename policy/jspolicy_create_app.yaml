@@ -8,7 +8,7 @@ spec:
   apiGroups: ["cluster.x-k8s.io"]
   javascript: |
     const nameCl = request.object.metadata.name
-    const vers = "9.29.3"
+    const vers = "9.35.0"
     const result = create({
       kind: "Secret",
       apiVersion: "v1",
