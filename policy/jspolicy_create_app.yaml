@@ -1,81 +1,104 @@
 apiVersion: policy.jspolicy.com/v1beta1
 kind: JsPolicy
 metadata:
-  name: "create.autoscaler.example"
+  name: create.autoscaler.helmchart.user
 spec:
   operations: ["CREATE"]
-  resources: ["clusters"]
-  apiGroups: ["cluster.x-k8s.io"]
+  resources: ["users"]
+  apiGroups: ["management.cattle.io"]
   javascript: |
-    const nameCl = request.object.metadata.name
-    const vers = "9.35.0"
-    const result = create({
-      kind: "Secret",
-      apiVersion: "v1",
+    // principalIds массив пользователя
+    const principals = request.object.principalIds || [];
+    
+    // Ищем первую запись principalId, начинающуюся на system://provisioning/
+    const provisioningPrincipal = principals.find(p => p.startsWith("system://provisioning/"));
+    if (!provisioningPrincipal) {
+      // Если нет нужного principalId - ничего не делаем
+      exit();
+    }
+
+    // provisioningPrincipal выглядит как system://provisioning/<namespace>/<clustername>
+    const parts = provisioningPrincipal.split('/');
+    // parts[0] = system:
+    // parts[1] = ""
+    // parts[2] = provisioning
+    // parts[3] = <namespace>
+    // parts[4] = <clustername>
+    const namespace = parts[3];
+    const nameCl = parts[4];
+
+    // Загружаем rancher server-url Setting
+    const setting = get("Setting", "management.cattle.io/v3", "server-url");
+
+    // Создаем HelmChart для автоскейлера
+    create({
+      apiVersion: "helm.cattle.io/v1",
+      kind: "HelmChart",
       metadata: {
-        "name": nameCl + "-autoscaler",
-        "namespace": "fleet-default"
+        name: nameCl + "-autoscaler",
+        namespace: namespace
       },
-      data: {
-        "config.yaml": btoa('url: https://' + env('RANCHER_URL') + '\ntoken: ' + env('RANCHER_AUTH') + '\nclusterName: ' + nameCl +'\nclusterNamespace: fleet-default')
+      spec: {
+        chart: "cluster-autoscaler",
+        repo: "https://kubernetes.github.io/autoscaler/",
+        targetNamespace: namespace,
+        set: {
+          "cloudProvider": "rancher",
+          "cloudConfigPath": "/etc/cluster-autoscaler/config.yaml",
+          "autoDiscovery.clusterName": nameCl,
+
+          "extraEnvSecrets.RANCHER_TOKEN.name": `${nameCl}-kubeconfig`,
+          "extraEnvSecrets.RANCHER_TOKEN.key": "token",
+
+          "extraVolumeSecrets.config.name": `${nameCl}-autoscaler`,
+          "extraVolumeSecrets.config.mountPath": "/etc/cluster-autoscaler",
+          "extraVolumeSecrets.kubeconfig.name": `${nameCl}-kubeconfig`,
+          "extraVolumeSecrets.kubeconfig.mountPath": "/etc/kubeconfig",
+
+          "extraArgs.balance-similar-node-groups": "true",
+          "extraArgs.clusterapi-cloud-config-authoritative": "true",
+          "extraArgs.cordon-node-before-terminating": "true",
+          "extraArgs.daemonset-eviction-for-empty-nodes": "true",
+          "extraArgs.ignore-daemonsets-utilization": "true",
+          "extraArgs.kubeconfig": "/etc/kubeconfig/value",
+          "extraArgs.namespace": "kube-system",
+          "extraArgs.node-group-auto-discovery": `clusterapi:clusterName=${nameCl}`,
+          "extraArgs.skip-nodes-with-local-storage": "false",
+          "extraArgs.skip-nodes-with-system-pods": "false",
+          "extraArgs.max-scale-down-parallelism": "1",
+          "extraArgs.max-drain-parallelism": "1",
+          "extraArgs.scale-down-delay-after-delete": "10m",
+          "extraArgs.scale-down-unneeded-time": "10m",
+
+          "extraObjects[0].apiVersion": "v1",
+          "extraObjects[0].kind": "Secret",
+          "extraObjects[0].metadata.name": `${nameCl}-autoscaler`,
+          "extraObjects[0].type": "Opaque",
+          "extraObjects[0].stringData.config\\.yaml": 
+            `url: ${setting.value}\ntoken: token\nclusterName: ${nameCl}\nclusterNamespace: ${namespace}`,
+
+          // Role
+          "extraObjects[1].apiVersion": "rbac.authorization.k8s.io/v1",
+          "extraObjects[1].kind": "Role",
+          "extraObjects[1].metadata.name": `${nameCl}-autoscaler-machines-reader`,
+          "extraObjects[1].metadata.namespace": namespace,
+          "extraObjects[1].rules[0].apiGroups[0]": "cluster.x-k8s.io",
+          "extraObjects[1].rules[0].resources[0]": "machines",
+          "extraObjects[1].rules[0].verbs[0]": "get",
+          "extraObjects[1].rules[0].verbs[1]": "list",
+          "extraObjects[1].rules[0].verbs[2]": "watch",
+
+          // RoleBinding
+          "extraObjects[2].apiVersion": "rbac.authorization.k8s.io/v1",
+          "extraObjects[2].kind": "RoleBinding",
+          "extraObjects[2].metadata.name": `${nameCl}-autoscaler-machines`,
+          "extraObjects[2].metadata.namespace": namespace,
+          "extraObjects[2].subjects[0].kind": "User",
+          "extraObjects[2].subjects[0].name": request.object.metadata.name,
+          "extraObjects[2].subjects[0].apiGroup": "rbac.authorization.k8s.io",
+          "extraObjects[2].roleRef.kind": "Role",
+          "extraObjects[2].roleRef.name": `${nameCl}-autoscaler-machines-reader`,
+          "extraObjects[2].roleRef.apiGroup": "rbac.authorization.k8s.io"
+        }
       }
     });
-    fetchSync("https://" + env('RANCHER_URL') + "/v1/catalog.cattle.io.clusterrepos/autoscaler?action=upgrade", {
-      headers: {
-        "accept": "application/json",
-        "content-type": "application/json;charset=UTF-8",
-        "Authorization": "Bearer " + env('RANCHER_AUTH')
-      },
-      body: JSON.stringify(
-              {
-                "charts":[
-                  {
-                      "chartName":"cluster-autoscaler",
-                      "version":vers,
-                      "releaseName":nameCl + "-autoscaler",
-                      "annotations":{
-                        "catalog.cattle.io/ui-source-repo-type":"cluster",
-                        "catalog.cattle.io/ui-source-repo":"autoscaler"
-                      },
-                      "values":{
-                        "autoDiscovery":{
-                            "clusterName":nameCl
-                        },
-                        "cloudProvider":"rancher",
-                        "extraArgs":{
-                            "balance-similar-node-groups":true,
-                            "cordon-node-before-terminating":true,
-                            "daemonset-eviction-for-empty-nodes":true,
-                            "cloud-config":"/etc/rancher/config.yaml",
-                            "kubeconfig":"/etc/kubeconfig/value",
-                            "namespace":"kube-system",
-                            "skip-nodes-with-local-storage":false,
-                            "skip-nodes-with-system-pods":false
-                        },
-                        "extraVolumeSecrets":{
-                            "rancher":{
-                              "mountPath":"/etc/rancher",
-                              "name":nameCl + "-autoscaler"
-                            },
-                            "kubeconfig":{
-                              "mountPath":"/etc/kubeconfig",
-                              "name":nameCl + "-kubeconfig"
-                            }
-                        }
-                      },
-                      "resetValues":false
-                  }
-                ],
-                "noHooks":false,
-                "timeout":"1200s",
-                "wait":true,
-                "namespace":"fleet-default",
-                "projectId":"",
-                "force":false,
-                "historyMax":5,
-                "cleanupOnFail":false
-              }
-            ),
-      method: "POST"
-    }) 
-  
